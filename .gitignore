@@ -1,0 +1,34 @@
+# Build artifacts
+/target/
+
+# Model files (too large)
+/models/
+
+# CUDA config (user-specific GPU architecture)
+.cargo/config.toml
+
+# User data
+data/store.jsonl
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings (user-specific permissions)
+.claude/settings.local.json
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+
+# Installer output
+/installer/output/

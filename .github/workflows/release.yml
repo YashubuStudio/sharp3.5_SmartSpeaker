@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-cpu:
+    name: Build CPU
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-cpu-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-cpu-
+
+      - name: Build (CPU)
+        run: cargo build --release --no-default-features
+
+      - name: Prepare release archive
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          DIR="smart_speaker-${TAG}-windows-cpu"
+          mkdir -p "${DIR}/config" "${DIR}/models" "${DIR}/data/knowledge"
+          cp target/release/smart_speaker.exe "${DIR}/"
+          cp wakeword.rpw "${DIR}/"
+          cp config/settings.toml "${DIR}/config/"
+          cp scripts/run.bat "${DIR}/"
+          cp scripts/setup.bat "${DIR}/"
+          cp scripts/models_readme.txt "${DIR}/models/README.txt"
+          echo "cpu" > "${DIR}/.variant"
+          cp README.md "${DIR}/" 2>/dev/null || true
+          cp LICENSE "${DIR}/" 2>/dev/null || true
+          7z a "${DIR}.7z" "${DIR}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-release
+          path: smart_speaker-*-windows-cpu.7z
+
+  build-cuda:
+    name: Build CUDA
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.18
+        with:
+          cuda: '12.6.3'
+          method: network
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-cuda-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-cuda-
+
+      - name: Configure CUDA architectures
+        shell: bash
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml << 'EOF'
+          [env]
+          CMAKE_CUDA_ARCHITECTURES = "60;70;75;80;86;89;90;100;120"
+          CUDAARCHS = "60;70;75;80;86;89;90;100;120"
+          EOF
+
+      - name: Build (CUDA)
+        run: cargo build --release --features cuda
+
+      - name: Prepare release archive
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          DIR="smart_speaker-${TAG}-windows-cuda"
+          mkdir -p "${DIR}/config" "${DIR}/models" "${DIR}/data/knowledge"
+          cp target/release/smart_speaker.exe "${DIR}/"
+          cp wakeword.rpw "${DIR}/"
+          cp config/settings.toml "${DIR}/config/"
+          cp scripts/run.bat "${DIR}/"
+          cp scripts/setup.bat "${DIR}/"
+          cp scripts/models_readme.txt "${DIR}/models/README.txt"
+          echo "cuda" > "${DIR}/.variant"
+          cp README.md "${DIR}/" 2>/dev/null || true
+          cp LICENSE "${DIR}/" 2>/dev/null || true
+          7z a "${DIR}.7z" "${DIR}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cuda-release
+          path: smart_speaker-*-windows-cuda.7z
+
+  release:
+    name: Create Release
+    needs: [build-cpu, build-cuda]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            cpu-release/*.7z
+            cuda-release/*.7z
