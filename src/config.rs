@@ -3,6 +3,51 @@ use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 
+fn validate_endpoint(endpoint: &str, field_name: &str) -> Result<()> {
+    let url = reqwest::Url::parse(endpoint).with_context(|| {
+        format!(
+            "{} は有効なURLである必要があります (現在: {})",
+            field_name, endpoint
+        )
+    })?;
+
+    anyhow::ensure!(
+        matches!(url.scheme(), "http" | "https"),
+        "{} は http または https スキームのみサポートします (現在: {})",
+        field_name,
+        url.scheme()
+    );
+
+    anyhow::ensure!(
+        url.host_str().is_some(),
+        "{} はホスト名を含む必要があります (現在: {})",
+        field_name,
+        endpoint
+    );
+
+    anyhow::ensure!(
+        url.username().is_empty() && url.password().is_none(),
+        "{} に認証情報 (username/password) を埋め込まないでください",
+        field_name
+    );
+
+    // localhost以外へはHTTPSを必須化し、誤設定による盗聴を防止
+    let host = url.host_str().unwrap_or_default();
+    let is_local = host == "localhost"
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == "[::1]"
+        || host == "0.0.0.0";
+    anyhow::ensure!(
+        is_local || url.scheme() == "https",
+        "{} がlocalhost以外を指す場合はHTTPSを使用してください (現在: {})",
+        field_name,
+        endpoint
+    );
+
+    Ok(())
+}
+
 /// アプリケーション全体の設定
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -252,6 +297,10 @@ impl Config {
             "tts.speed は 0.5〜2.0 の範囲である必要があります (現在: {})",
             self.tts.speed
         );
+
+        // endpoints
+        validate_endpoint(&self.llm.endpoint, "llm.endpoint")?;
+        validate_endpoint(&self.tts.endpoint, "tts.endpoint")?;
 
         // rag
         if self.rag.enabled {

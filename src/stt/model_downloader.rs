@@ -4,8 +4,7 @@ use std::fs;
 use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
 
-const HUGGINGFACE_BASE_URL: &str =
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
+const HUGGINGFACE_BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 
 const PROGRESS_INTERVAL_BYTES: u64 = 10 * 1024 * 1024; // 10MB
 
@@ -115,7 +114,9 @@ pub fn ensure_model_exists(model_path: &str) -> Result<String> {
         .with_context(|| format!("ディレクトリ作成失敗: {}", models_dir.display()))?;
 
     let part_path = format!("{}.part", dest_str);
-    if let Err(e) = download_file(&url, &part_path) {
+    // 既知サイズの120%を上限にして異常な肥大化を防ぐ
+    let max_bytes = (selected.size_mb as u64) * 1_048_576 * 12 / 10;
+    if let Err(e) = download_file(&url, &part_path, max_bytes) {
         let _ = fs::remove_file(&part_path);
         return Err(e);
     }
@@ -193,7 +194,7 @@ fn prompt_model_selection(configured_name: &str) -> Result<&'static ModelInfo> {
     }
 }
 
-fn download_file(url: &str, dest: &str) -> Result<()> {
+fn download_file(url: &str, dest: &str, max_bytes: u64) -> Result<()> {
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(30))
         .build()?;
@@ -208,8 +209,16 @@ fn download_file(url: &str, dest: &str) -> Result<()> {
     }
 
     let total_size = response.content_length();
-    let mut file = fs::File::create(dest)
-        .with_context(|| format!("ファイル作成失敗: {}", dest))?;
+    if let Some(total) = total_size {
+        anyhow::ensure!(
+            total <= max_bytes,
+            "ダウンロードサイズが上限を超えています: {} bytes (上限: {} bytes)",
+            total,
+            max_bytes
+        );
+    }
+
+    let mut file = fs::File::create(dest).with_context(|| format!("ファイル作成失敗: {}", dest))?;
 
     let mut downloaded: u64 = 0;
     let mut last_progress: u64 = 0;
@@ -222,6 +231,13 @@ fn download_file(url: &str, dest: &str) -> Result<()> {
         }
         file.write_all(&buffer[..bytes_read])?;
         downloaded += bytes_read as u64;
+
+        anyhow::ensure!(
+            downloaded <= max_bytes,
+            "ダウンロードサイズが上限を超えました: {} bytes (上限: {} bytes)",
+            downloaded,
+            max_bytes
+        );
 
         if downloaded - last_progress >= PROGRESS_INTERVAL_BYTES {
             last_progress = downloaded;
