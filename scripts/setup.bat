@@ -37,7 +37,7 @@ echo.
 :: [2/6] CUDA Toolkit check (GPU variant only)
 :: ----------------------------------------
 if /i "%VARIANT%"=="cuda" (
-    echo [2/6] Checking CUDA Toolkit 12.8+...
+    echo [2/6] Checking CUDA Toolkit 12.x...
 
     REM Check if any CUDA 12.x DLL is accessible
     set "CUDA_OK=0"
@@ -56,15 +56,15 @@ if /i "%VARIANT%"=="cuda" (
         echo       CUDA 12.x libraries found
     ) else (
         echo.
-        echo       CUDA Toolkit 12.8+ is required for the GPU variant.
-        echo       Other CUDA 12.x versions ^(12.4, 12.6^) also work.
+        echo       CUDA Toolkit 12.x is required for the GPU variant.
+        echo       Recommended: 12.8. Supported: 12.6 and 12.4.
         echo.
         echo       NOTE: CUDA 13.x is NOT compatible. Please install CUDA 12.8.
         echo.
         echo       Installation steps:
         echo         1. Go to https://developer.nvidia.com/cuda-toolkit
         echo         2. Select Windows, x86_64, exe ^(local^)
-        echo         3. Choose CUDA Toolkit 12.8
+        echo         3. Choose CUDA Toolkit 12.8 ^(recommended^)
         echo         4. Run the express installation
         echo         5. Restart your PC after installation
         echo.

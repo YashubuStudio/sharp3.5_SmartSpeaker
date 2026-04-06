@@ -16,19 +16,18 @@ set "VARIANT=cpu"
 if exist "%APP_DIR%\.variant" set /p VARIANT=<"%APP_DIR%\.variant"
 
 if /i "%VARIANT%"=="cuda" (
-    :: Check NVIDIA driver version (CUDA 12.8 requires driver >= 570)
+    :: Check NVIDIA driver version.
+    :: CUDA 12.8 builds may need newer drivers, but 12.6 / 12.4 builds can work on older ones.
     for /f "tokens=*" %%V in ('nvidia-smi --query-gpu=driver_version --format=csv,noheader 2^>nul') do set "DRIVER_VER=%%V"
     if defined DRIVER_VER (
         for /f "tokens=1 delims=." %%M in ("!DRIVER_VER!") do set "DRIVER_MAJOR=%%M"
         echo       NVIDIA Driver: !DRIVER_VER!
         if !DRIVER_MAJOR! LSS 570 (
             echo.
-            echo  *** WARNING: NVIDIA driver !DRIVER_VER! is too old for CUDA 12.8 ***
-            echo  *** Please update to driver 570.x or later.                     ***
-            echo  *** Download: https://www.nvidia.com/drivers                     ***
+            echo  *** WARNING: NVIDIA driver !DRIVER_VER! may be too old for CUDA 12.8 builds. ***
+            echo  *** CUDA 12.6 / 12.4 builds can still work, so launch will continue.         ***
+            echo  *** If startup fails, update your driver: https://www.nvidia.com/drivers      ***
             echo.
-            pause
-            exit /b 1
         )
     ) else (
         echo       WARNING: nvidia-smi not found. Cannot verify GPU driver.

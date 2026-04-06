@@ -1,5 +1,6 @@
 # Build artifacts
 /target/
+/release/
 
 # Model files (too large)
 /models/

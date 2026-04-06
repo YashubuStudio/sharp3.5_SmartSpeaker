@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 chcp 65001 >nul 2>&1
 
 echo ============================================
@@ -9,17 +9,27 @@ echo.
 
 :: Navigate to project root (one level up from scripts/)
 set "PROJECT_DIR=%~dp0.."
+set "CUDA_ARCH_LIST=75-real;86-real;89-real;120-virtual"
 cd /d "%PROJECT_DIR%"
 
-:: Force CUDA 12.8 for build
-set "CUDA_VER=12.8"
-if exist "%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v%CUDA_VER%\bin\nvcc.exe" (
-    set "CUDA_PATH=%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v%CUDA_VER%"
-    set "CUDAToolkit_ROOT=%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v%CUDA_VER%"
-    set "PATH=%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v%CUDA_VER%\bin;%PATH%"
-    echo Using CUDA Toolkit: v%CUDA_VER%
+:: Configure CUDA / LLVM / MSVC for local GPU builds
+call "%~dp0cuda-env.bat"
+set "CUDA_ENV_STATUS=%ERRORLEVEL%"
+if "%CUDA_ENV_STATUS%"=="0" (
+    if not defined CMAKE_CUDA_ARCHITECTURES set "CMAKE_CUDA_ARCHITECTURES=!CUDA_ARCH_LIST!"
+    if not defined CUDAARCHS set "CUDAARCHS=!CUDA_ARCH_LIST!"
+    echo Using CUDA Toolkit: v!CUDA_VER!
+    echo Build temp: !TEMP!
 ) else (
-    echo WARNING: CUDA %CUDA_VER% not found. Build may use a different CUDA version.
+    if "%CUDA_ENV_STATUS%"=="1" (
+        echo ERROR: Supported CUDA Toolkit not found.
+        echo Install CUDA 12.8, 12.6, or 12.4 and retry.
+    ) else (
+        echo ERROR: Visual Studio C++ build tools are not ready for CUDA builds.
+        echo Install Visual Studio Build Tools 2022 with the C++ workload and retry.
+    )
+    pause
+    exit /b 1
 )
 echo.
 

@@ -6,7 +6,7 @@ chcp 65001 >nul 2>&1
 :: Smart Speaker Release Build Script
 :: Builds CPU + CUDA variants, packages as 7z
 :: Output: cpu / cuda (no DLLs) / cuda-bundled (with CUDA DLLs)
-:: Requires: CUDA Toolkit 12.8 for CUDA builds
+:: Requires: CUDA Toolkit 12.x (12.8 / 12.6 / 12.4) for CUDA builds
 :: ============================================================
 
 :: Navigate to project root (one level up from scripts/)
@@ -15,7 +15,9 @@ cd /d "%~dp0.."
 :: Version (keep in sync with Cargo.toml)
 set VERSION=0.1.0
 set RELEASE_BASE=release
-set CUDA_VER=12.8
+set "CUDA_VER=auto-detect (12.8 / 12.6 / 12.4)"
+set "CUDA_ARCH_LIST=75-real;86-real;89-real;120-virtual"
+set "SEVENZIP_X86=%ProgramFiles(x86)%"
 
 :: Parse options
 set DO_BUILD=1
@@ -43,7 +45,7 @@ if "%~1"=="--help" (
     echo.
     echo Creates 3 release archives:
     echo   cpu           - CPU-only build
-    echo   cuda          - CUDA build ^(requires CUDA Toolkit 12.8+ on user machine^)
+    echo   cuda          - CUDA build ^(requires CUDA Toolkit 12.x on user machine^)
     echo   cuda-bundled  - CUDA build with DLLs included ^(standalone^)
     exit /b 0
 )
@@ -64,8 +66,8 @@ where 7z >nul 2>&1
 if %errorlevel% neq 0 (
     if exist "%ProgramFiles%\7-Zip\7z.exe" (
         set "PATH=%ProgramFiles%\7-Zip;%PATH%"
-    ) else if exist "%ProgramFiles(x86)%\7-Zip\7z.exe" (
-        set "PATH=%ProgramFiles(x86)%\7-Zip;%PATH%"
+    ) else if exist "!SEVENZIP_X86!\7-Zip\7z.exe" (
+        set "PATH=!SEVENZIP_X86!\7-Zip;%PATH%"
     ) else (
         echo ERROR: 7-Zip not found.
         echo Please install 7-Zip: https://www.7-zip.org/
@@ -74,37 +76,33 @@ if %errorlevel% neq 0 (
     )
 )
 
-:: Locate CUDA Toolkit 12.8
-set "CUDA_ROOT="
+:: Locate and configure CUDA Toolkit 12.x
 set "SKIP_CUDA=0"
-for %%D in (
-    "%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v%CUDA_VER%"
-) do (
-    if exist "%%~D\bin\nvcc.exe" set "CUDA_ROOT=%%~D"
-)
-if not defined CUDA_ROOT (
-    echo WARNING: CUDA Toolkit %CUDA_VER% not found.
-    echo Expected: %ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v%CUDA_VER%
+set "SKIP_BUNDLED=1"
+call "%~dp0cuda-env.bat"
+set "CUDA_ENV_STATUS=%ERRORLEVEL%"
+if not "%CUDA_ENV_STATUS%"=="0" (
+    if "%CUDA_ENV_STATUS%"=="1" (
+        echo WARNING: CUDA Toolkit 12.x not found.
+        echo Checked: 12.8, 12.6, 12.4
+    ) else (
+        echo WARNING: CUDA build environment could not be initialized.
+        echo Check Visual Studio Build Tools and C++ workloads.
+    )
     echo CUDA variants will be skipped. Only CPU variant will be built.
     echo.
-    set SKIP_CUDA=1
+    set "SKIP_CUDA=1"
 ) else (
-    echo Using CUDA Toolkit: %CUDA_ROOT%
+    echo Using CUDA Toolkit: !CUDA_ROOT!
+    echo Build temp: !TEMP!
+    REM Fat binary: cover all modern GPU generations in a single binary
+    REM   75 = Turing (RTX 2000), 86 = Ampere (RTX 3000), 89 = Ada (RTX 4000)
+    REM   120-virtual = Blackwell PTX (RTX 5000+, JIT at runtime)
+    if not defined CMAKE_CUDA_ARCHITECTURES set "CMAKE_CUDA_ARCHITECTURES=!CUDA_ARCH_LIST!"
+    if not defined CUDAARCHS set "CUDAARCHS=!CUDA_ARCH_LIST!"
+    echo CUDA architectures: !CMAKE_CUDA_ARCHITECTURES!
+    echo.
 )
-echo.
-
-if %SKIP_CUDA%==1 goto :skip_cuda_env
-:: Force CMake to use CUDA 12.8 (not 13.x)
-set "CUDA_PATH=%CUDA_ROOT%"
-set "CUDAToolkit_ROOT=%CUDA_ROOT%"
-set "CMAKE_CUDA_COMPILER=%CUDA_ROOT%\bin\nvcc.exe"
-set "PATH=%CUDA_ROOT%\bin;%PATH%"
-:: Fat binary: cover all modern GPU generations in a single binary
-::   75 = Turing (RTX 2000), 86 = Ampere (RTX 3000), 89 = Ada (RTX 4000)
-::   120-virtual = Blackwell PTX (RTX 5000+, JIT at runtime)
-set "CMAKE_CUDA_ARCHITECTURES=75-real;86-real;89-real;120-virtual"
-set "CUDAARCHS=75-real;86-real;89-real;120-virtual"
-:skip_cuda_env
 
 :: Create release base directory
 if not exist "%RELEASE_BASE%" mkdir "%RELEASE_BASE%"
@@ -126,7 +124,7 @@ if %DO_BUILD%==1 (
 
     if %SKIP_CUDA%==0 (
         echo [2/7] Building CUDA variant ^(CUDA %CUDA_VER%^)
-        cargo build --release
+        cargo build --release --features cuda
         if errorlevel 1 (
             echo.
             echo ERROR: CUDA build failed
@@ -159,24 +157,26 @@ if %DO_BUILD%==1 (
 :: ========================================
 :: Locate CUDA DLLs for bundled variant
 :: ========================================
-set "CUDA_BIN="
-for %%P in (
-    "%CUDA_ROOT%\bin"
-    "%CUDA_ROOT%\bin\x64"
-) do (
-    if not defined CUDA_BIN (
-        if exist "%%~P\cublas64_12.dll" set "CUDA_BIN=%%~P"
+if %SKIP_CUDA%==0 (
+    set "CUDA_BIN="
+    for %%P in (
+        "%CUDA_ROOT%\bin"
+        "%CUDA_ROOT%\bin\x64"
+    ) do (
+        if not defined CUDA_BIN (
+            if exist "%%~P\cublas64_12.dll" set "CUDA_BIN=%%~P"
+        )
     )
-)
 
-if not defined CUDA_BIN (
-    echo WARNING: CUDA DLLs not found. cuda-bundled variant will be skipped.
-    echo.
-    set SKIP_BUNDLED=1
-) else (
-    echo CUDA DLLs found: %CUDA_BIN%
-    echo.
-    set SKIP_BUNDLED=0
+    if not defined CUDA_BIN (
+        echo WARNING: CUDA DLLs not found. cuda-bundled variant will be skipped.
+        echo.
+        set "SKIP_BUNDLED=1"
+    ) else (
+        echo CUDA DLLs found: !CUDA_BIN!
+        echo.
+        set "SKIP_BUNDLED=0"
+    )
 )
 
 :: ========================================
