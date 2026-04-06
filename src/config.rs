@@ -58,6 +58,8 @@ pub struct Config {
     pub tts: TtsConfig,
     #[serde(default)]
     pub rag: RagConfig,
+    #[serde(default)]
+    pub web: WebConfig,
 }
 
 /// ウェイクワード検出の設定（Rustpotter）
@@ -200,6 +202,39 @@ pub struct RagConfig {
     pub similarity_threshold: f32,
 }
 
+/// Web UI / API ホスト設定
+#[derive(Debug, Deserialize)]
+pub struct WebConfig {
+    #[serde(default = "default_web_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_web_bind_host")]
+    pub bind_host: String,
+    #[serde(default = "default_web_port")]
+    pub port: u16,
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_web_enabled(),
+            bind_host: default_web_bind_host(),
+            port: default_web_port(),
+        }
+    }
+}
+
+fn default_web_enabled() -> bool {
+    true
+}
+
+fn default_web_bind_host() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_web_port() -> u16 {
+    8080
+}
+
 impl Default for RagConfig {
     fn default() -> Self {
         Self {
@@ -315,6 +350,17 @@ impl Config {
                 self.rag.top_k
             );
         }
+
+        // web
+        anyhow::ensure!(
+            !self.web.enabled || self.web.port > 0,
+            "web.port は 1〜65535 の範囲である必要があります (現在: {})",
+            self.web.port
+        );
+        anyhow::ensure!(
+            !self.web.bind_host.trim().is_empty(),
+            "web.bind_host は空にできません"
+        );
 
         Ok(())
     }

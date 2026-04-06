@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::{info, warn};
 use reqwest::blocking::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use thiserror::Error;
 
@@ -92,6 +92,36 @@ impl OllamaLlm {
         &self.system_prompt
     }
 
+    /// 単発リクエストで応答テキストを生成
+    pub fn generate(&self, prompt: &str) -> Result<String> {
+        #[derive(Serialize)]
+        struct GenerateRequest<'a> {
+            model: &'a str,
+            prompt: &'a str,
+            system: &'a str,
+            stream: bool,
+        }
+
+        #[derive(Deserialize)]
+        struct GenerateResponse {
+            response: String,
+        }
+
+        let request = GenerateRequest {
+            model: &self.model,
+            prompt,
+            system: &self.system_prompt,
+            stream: false,
+        };
+
+        let url = format!("{}/api/generate", self.endpoint);
+        let response = self.client.post(&url).json(&request).send()?;
+        if !response.status().is_success() {
+            anyhow::bail!("Ollama APIエラー: ステータスコード {}", response.status());
+        }
+        let generated: GenerateResponse = response.json()?;
+        Ok(generated.response.trim().to_string())
+    }
 }
 
 /// 非localhostエンドポイントに対して警告を出力する

@@ -91,3 +91,10 @@ top_k = 3
 # 類似度の最低閾値（0.0〜1.0）
 similarity_threshold = 0.3
 
+[web]
+# Web UI / API を有効化
+enabled = true
+# ローカルネットワークからアクセス可能にするバインド先
+bind_host = "0.0.0.0"
+# Web UI / API ポート
+port = 8080

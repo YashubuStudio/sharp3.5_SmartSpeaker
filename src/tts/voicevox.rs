@@ -44,7 +44,10 @@ impl VoicevoxTts {
     /// # Returns
     /// 初期化されたVoicevoxTtsインスタンス
     pub fn new(config: &TtsConfig) -> Result<Self> {
-        info!("VOICEVOX TTS初期化: endpoint={}, speaker_id={}", config.endpoint, config.speaker_id);
+        info!(
+            "VOICEVOX TTS初期化: endpoint={}, speaker_id={}",
+            config.endpoint, config.speaker_id
+        );
 
         // 非localhostエンドポイントへの警告
         warn_if_non_localhost(&config.endpoint, "VOICEVOX");
@@ -87,6 +90,17 @@ impl VoicevoxTts {
             Err(_) => Ok(false),
         }
     }
+
+    /// テキストを音声データ（WAV）に変換
+    pub fn synthesize(&self, text: &str) -> Result<Vec<u8>> {
+        synthesize_with_client(
+            &self.client,
+            &self.endpoint,
+            self.speaker_id,
+            self.speed,
+            text,
+        )
+    }
 }
 
 /// スタンドアロンTTS合成関数（Send制約回避用）
@@ -114,11 +128,9 @@ pub fn synthesize_with_client(
         .map_err(|e| TtsError::ConnectionError(e.to_string()))?;
 
     if !response.status().is_success() {
-        return Err(TtsError::AudioQueryError(format!(
-            "ステータスコード: {}",
-            response.status()
-        ))
-        .into());
+        return Err(
+            TtsError::AudioQueryError(format!("ステータスコード: {}", response.status())).into(),
+        );
     }
 
     let mut query: Value = response
@@ -141,11 +153,9 @@ pub fn synthesize_with_client(
         .map_err(|e| TtsError::ConnectionError(e.to_string()))?;
 
     if !response.status().is_success() {
-        return Err(TtsError::SynthesisError(format!(
-            "ステータスコード: {}",
-            response.status()
-        ))
-        .into());
+        return Err(
+            TtsError::SynthesisError(format!("ステータスコード: {}", response.status())).into(),
+        );
     }
 
     let audio = response
