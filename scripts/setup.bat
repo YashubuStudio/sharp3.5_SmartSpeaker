@@ -8,10 +8,13 @@ echo   Smart Speaker Setup
 echo ========================================
 echo.
 
+:: Resolve application root for both packaged and source-tree layouts
+call :resolve_app_dir
+
 :: Detect variant
 set VARIANT=cpu
-if exist "%~dp0.variant" (
-    set /p VARIANT=<"%~dp0.variant"
+if exist "%APP_DIR%\.variant" (
+    set /p VARIANT=<"%APP_DIR%\.variant"
 )
 
 if /i "%VARIANT%"=="cuda" (
@@ -21,15 +24,12 @@ if /i "%VARIANT%"=="cuda" (
 )
 echo.
 
-:: Application root directory (same location as setup.bat)
-set "APP_DIR=%~dp0"
-
 :: ----------------------------------------
 :: [1/6] Create directories
 :: ----------------------------------------
 echo [1/6] Creating directories...
-if not exist "%APP_DIR%data\knowledge" mkdir "%APP_DIR%data\knowledge"
-if not exist "%APP_DIR%models" mkdir "%APP_DIR%models"
+if not exist "%APP_DIR%\data\knowledge" mkdir "%APP_DIR%\data\knowledge"
+if not exist "%APP_DIR%\models" mkdir "%APP_DIR%\models"
 echo       Done
 echo.
 
@@ -50,7 +50,7 @@ if /i "%VARIANT%"=="cuda" (
     )
 
     REM Also check if bundled DLLs exist (cuda-bundled variant)
-    if exist "%APP_DIR%cublas64_12.dll" set "CUDA_OK=1"
+    if exist "%APP_DIR%\cublas64_12.dll" set "CUDA_OK=1"
 
     if "!CUDA_OK!"=="1" (
         echo       CUDA 12.x libraries found
@@ -156,7 +156,7 @@ echo.
 echo [5/6] Checking Whisper model...
 set "WHISPER_MODEL=ggml-large-v3-turbo.bin"
 set "WHISPER_URL=https://huggingface.co/ggerganov/whisper.cpp/resolve/main/%WHISPER_MODEL%"
-set "WHISPER_DEST=%APP_DIR%models\%WHISPER_MODEL%"
+set "WHISPER_DEST=%APP_DIR%\models\%WHISPER_MODEL%"
 
 if exist "%WHISPER_DEST%" (
     echo       %WHISPER_MODEL% already exists
@@ -218,3 +218,20 @@ echo     1. Install and start VOICEVOX
 echo     2. Run run.bat
 echo.
 pause
+goto :eof
+
+:resolve_app_dir
+for %%I in ("%~dp0.") do set "SCRIPT_DIR=%%~fI"
+if exist "%SCRIPT_DIR%\Cargo.toml" (
+    set "APP_DIR=%SCRIPT_DIR%"
+    exit /b 0
+)
+
+for %%I in ("%SCRIPT_DIR%\..") do set "PARENT_DIR=%%~fI"
+if exist "%PARENT_DIR%\Cargo.toml" (
+    set "APP_DIR=%PARENT_DIR%"
+    exit /b 0
+)
+
+set "APP_DIR=%SCRIPT_DIR%"
+exit /b 0

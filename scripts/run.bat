@@ -8,12 +8,12 @@ echo   Smart Speaker Launcher
 echo ========================================
 echo.
 
-:: Application root directory (same location as run.bat)
-set "APP_DIR=%~dp0"
+:: Resolve application root for both packaged and source-tree layouts
+call :resolve_app_dir
 
 :: Detect variant and ensure CUDA DLLs are accessible
 set "VARIANT=cpu"
-if exist "%APP_DIR%.variant" set /p VARIANT=<"%APP_DIR%.variant"
+if exist "%APP_DIR%\.variant" set /p VARIANT=<"%APP_DIR%\.variant"
 
 if /i "%VARIANT%"=="cuda" (
     :: Check NVIDIA driver version (CUDA 12.8 requires driver >= 570)
@@ -34,7 +34,7 @@ if /i "%VARIANT%"=="cuda" (
         echo       WARNING: nvidia-smi not found. Cannot verify GPU driver.
     )
 
-    if not exist "%APP_DIR%cublas64_12.dll" (
+    if not exist "%APP_DIR%\cublas64_12.dll" (
         :: DLLs not bundled - add CUDA Toolkit to PATH
         for %%P in (
             "%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin"
@@ -136,13 +136,39 @@ echo.
 echo [3/3] Launching Smart Speaker...
 echo.
 cd /d "%APP_DIR%"
-if exist "smart_speaker.exe" (
-    smart_speaker.exe
+set "EXE_PATH="
+if exist "%APP_DIR%\smart_speaker.exe" (
+    set "EXE_PATH=%APP_DIR%\smart_speaker.exe"
+) else if exist "%APP_DIR%\target\release\smart_speaker.exe" (
+    set "EXE_PATH=%APP_DIR%\target\release\smart_speaker.exe"
+)
+
+if defined EXE_PATH (
+    "%EXE_PATH%"
 ) else (
     echo ERROR: smart_speaker.exe not found.
-    echo Please check that smart_speaker.exe exists in "%APP_DIR%".
+    echo Checked:
+    echo   "%APP_DIR%\smart_speaker.exe"
+    echo   "%APP_DIR%\target\release\smart_speaker.exe"
     pause
     exit /b 1
 )
 
 pause
+goto :eof
+
+:resolve_app_dir
+for %%I in ("%~dp0.") do set "SCRIPT_DIR=%%~fI"
+if exist "%SCRIPT_DIR%\Cargo.toml" (
+    set "APP_DIR=%SCRIPT_DIR%"
+    exit /b 0
+)
+
+for %%I in ("%SCRIPT_DIR%\..") do set "PARENT_DIR=%%~fI"
+if exist "%PARENT_DIR%\Cargo.toml" (
+    set "APP_DIR=%PARENT_DIR%"
+    exit /b 0
+)
+
+set "APP_DIR=%SCRIPT_DIR%"
+exit /b 0
