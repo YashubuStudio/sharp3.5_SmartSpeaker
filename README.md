@@ -77,6 +77,25 @@ cargo build --release --features cuda
 | `[llm]` | Ollamaエンドポイント、モデル名、システムプロンプト |
 | `[tts]` | VOICEVOXエンドポイント、話者ID、話速 |
 | `[rag]` | RAG機能の有効/無効、ナレッジディレクトリ |
+| `[web]` | ローカルネットワーク配信用 Web UI / API のホスト・ポート |
+
+## Web UI / API（ローカルネットワーク配信）
+
+アプリ起動後、`[web] enabled = true` の場合は Web UI / API サーバーが同時に起動します。
+
+- Web UI: `http://<ホストIP>:8080/`
+- ヘルスチェック: `GET /api/health`
+- チャットAPI: `POST /api/chat`
+
+### API例
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/chat \\
+  -H "Content-Type: application/json" \\
+  -d '{"text":"今日の天気を教えて","speak":true}'
+```
+
+レスポンスには `response`（テキスト）と、`speak=true` 時に `audio_base64`（WAVのBase64）が含まれます。
 
 ## カスタムウェイクワード
 

@@ -6,6 +6,7 @@ mod rag;
 mod stt;
 mod tts;
 mod wakeword;
+mod webserver;
 
 use anyhow::Result;
 use log::{error, info, warn};
@@ -15,6 +16,7 @@ use config::Config;
 use llm::OllamaLlm;
 use pipeline::PipelineClients;
 use rag::RagEngine;
+use std::sync::{Arc, Mutex};
 use stt::WhisperStt;
 use tts::VoicevoxTts;
 use wakeword::WakewordDetector;
@@ -31,21 +33,28 @@ fn main() -> Result<()> {
     info!("設定読み込み・バリデーション完了");
 
     // 各コンポーネントの初期化とヘルスチェック
-    let llm = OllamaLlm::new(&config.llm)?;
+    let llm = Arc::new(OllamaLlm::new(&config.llm)?);
     if !llm.health_check()? {
-        anyhow::bail!("Ollamaサーバーに接続できません。Ollamaが起動していることを確認してください。");
+        anyhow::bail!(
+            "Ollamaサーバーに接続できません。Ollamaが起動していることを確認してください。"
+        );
     }
     info!("Ollama接続OK");
 
-    let tts = VoicevoxTts::new(&config.tts)?;
+    let tts = Arc::new(VoicevoxTts::new(&config.tts)?);
     if !tts.health_check()? {
-        anyhow::bail!("VOICEVOXサーバーに接続できません。VOICEVOXが起動していることを確認してください。");
+        anyhow::bail!(
+            "VOICEVOXサーバーに接続できません。VOICEVOXが起動していることを確認してください。"
+        );
     }
     info!("VOICEVOX接続OK");
 
     let actual_model_path = stt::model_downloader::ensure_model_exists(&config.stt.model_path)?;
     if actual_model_path != config.stt.model_path {
-        info!("選択されたモデル: {} (設定: {})", actual_model_path, config.stt.model_path);
+        info!(
+            "選択されたモデル: {} (設定: {})",
+            actual_model_path, config.stt.model_path
+        );
         update_settings_model_path("config/settings.toml", &actual_model_path);
     }
     let stt_config = config::SttConfig {
@@ -72,7 +81,7 @@ fn main() -> Result<()> {
     info!("オーディオデバイス初期化OK");
 
     // RAGエンジン初期化
-    let mut rag_engine = if config.rag.enabled {
+    let rag_engine = if config.rag.enabled {
         match RagEngine::new(&config.rag, &config.llm.endpoint, &config.llm.model) {
             Ok(mut engine) => {
                 match engine.index_knowledge() {
@@ -90,17 +99,39 @@ fn main() -> Result<()> {
         info!("RAG: 無効");
         None
     };
+    let rag_engine = Arc::new(Mutex::new(rag_engine));
 
     // パイプライン用HTTPクライアントを事前生成（毎回生成のオーバーヘッドを回避）
     let pipeline_clients = PipelineClients::new()?;
     info!("パイプラインHTTPクライアント初期化OK");
 
+    // Web UI / API サーバー起動（ローカルネットワーク配信用）
+    let _web_server = if config.web.enabled {
+        Some(webserver::start_web_server(
+            &config.web,
+            webserver::WebApiState {
+                llm: Arc::clone(&llm),
+                tts: Arc::clone(&tts),
+                rag: Arc::clone(&rag_engine),
+            },
+        )?)
+    } else {
+        info!("Web UI / API: 無効");
+        None
+    };
+
     println!();
     println!("========================================");
     println!("  Smart Speaker Ready!");
     println!("  Wakeword file: {}", config.wakeword.wakeword_path);
-    if rag_engine.is_some() {
+    if rag_engine.lock().map(|g| g.is_some()).unwrap_or(false) {
         println!("  RAG: enabled");
+    }
+    if config.web.enabled {
+        println!(
+            "  Web UI: http://{}:{}/",
+            config.web.bind_host, config.web.port
+        );
     }
     println!("========================================");
 
@@ -109,15 +140,31 @@ fn main() -> Result<()> {
         // ウェイクワード待機（Rustpotter）
         match wakeword_detector.wait_for_wakeword(&capture) {
             Ok(result) => {
-                info!("ウェイクワード \"{}\" 検出 (score: {:.2})", result.keyword, result.score);
+                info!(
+                    "ウェイクワード \"{}\" 検出 (score: {:.2})",
+                    result.keyword, result.score
+                );
 
                 // コマンドを録音
                 println!(">>> Listening for your command...");
                 match get_voice_command(&config, &capture, &stt) {
                     Ok(Some((cmd, stt_duration))) => {
                         // LLM応答をストリーミングパイプラインで生成・再生
+                        let mut rag_guard = match rag_engine.lock() {
+                            Ok(guard) => guard,
+                            Err(_) => {
+                                error!("RAGロック取得に失敗");
+                                continue;
+                            }
+                        };
                         if let Err(e) = pipeline::process_command_streaming(
-                            &cmd, &llm, &tts, &playback, &mut rag_engine, stt_duration, &pipeline_clients,
+                            &cmd,
+                            &llm,
+                            &tts,
+                            &playback,
+                            &mut rag_guard,
+                            stt_duration,
+                            &pipeline_clients,
                         ) {
                             error!("処理エラー: {}", e);
                         }
@@ -145,7 +192,10 @@ fn update_settings_model_path(settings_path: &str, new_model_path: &str) {
     let content = match std::fs::read_to_string(settings_path) {
         Ok(c) => c,
         Err(e) => {
-            warn!("settings.toml の読み込みに失敗（モデルパス更新スキップ）: {}", e);
+            warn!(
+                "settings.toml の読み込みに失敗（モデルパス更新スキップ）: {}",
+                e
+            );
             return;
         }
     };
@@ -175,7 +225,10 @@ fn update_settings_model_path(settings_path: &str, new_model_path: &str) {
     };
 
     match std::fs::write(settings_path, &new_content) {
-        Ok(()) => info!("settings.toml の model_path を更新しました: {}", new_model_path),
+        Ok(()) => info!(
+            "settings.toml の model_path を更新しました: {}",
+            new_model_path
+        ),
         Err(e) => warn!("settings.toml の書き込みに失敗: {}", e),
     }
 }
@@ -211,4 +264,3 @@ fn get_voice_command(
     println!(">>> You said: \"{}\"", text);
     Ok(Some((text, stt_duration)))
 }
-
